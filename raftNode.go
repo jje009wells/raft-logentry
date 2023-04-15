@@ -33,6 +33,10 @@ type VoteReply struct {
 type AppendEntryArgument struct {
 	Term     int // leader's term
 	LeaderID int // so follower can redirect clients
+	prevLogIndex int 
+	prevLogTerm int
+	entries[]LogEntry
+	leaderCommit int
 }
 
 // output for AppendEntries RPC
@@ -59,6 +63,15 @@ var votedFor int
 var electionTimeout *time.Timer
 var isLeader bool
 var timerDuration time.Duration
+
+// provided by Christine
+var lastAppliedIndex int
+
+// from Raft paper
+var prevLogIndex int
+var prevLogTerm int
+
+var logEntries []LogEntry
 
 var wg sync.WaitGroup
 
@@ -130,9 +143,41 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 
 	//might need to update our term
 	if arguments.Term != currentTerm {
-		fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
-		currentTerm = arguments.Term
+		if arguments.Term < currentTerm {
+			fmt.Printf("-- entry not appended because leader is out of sync!!")
+			reply.Success = false //don't want to append entry in this scenario because the leader is out of sync
+		} else {
+			fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
+			currentTerm = arguments.Term
+		}
 	}
+
+	//NEW
+	//logEntry: index , term
+	if logEntries[prevLogIndex].Term != prevLogTerm {
+		fmt.Printf("-- entry not appended because the terms are out of sync!!")
+		reply.Success = false
+	}
+
+	// if an existing entry conflicts with a new one (same index but diff. terms), delete existing entry and all that follow it
+	for entries := range logEntries {
+		// need to check if any existing entries have the same index but diff. terms compared to new one
+		if logEntries[entries].Index == arguments. && logEntries[entries].Term != arguments.Term {
+
+		if logEntries[entries].Index == -1 {
+			// update previous log index
+			prevLogIndex = logEntries[entries].Index - 1
+			fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
+
+			// delete existing entry at index and all that follow it
+			for i := logEntries[entries].Index; i < len(logEntries); i++ {
+				logEntries[i].Term = -1
+				logEntries[i].Index = -1
+
+			}
+		}
+	}
+}
 
 	if !stopped {
 		fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
