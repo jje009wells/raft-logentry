@@ -264,6 +264,9 @@ func restartTimer() bool {
 
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
+
+// update VoteArguments variables in here when creating new object
+
 func LeaderElection() {
 	currentTerm += 1 // increment current term
 	//vote for self
@@ -314,6 +317,9 @@ func LeaderElection() {
 
 // You may use this function to help with handling the periodic heartbeats
 // Hint: Use this only if the node is a leader
+
+// update other AppendEntryArgument variables
+
 func Heartbeat() {
 	arg := new(AppendEntryArgument)
 	arg.Term = currentTerm
@@ -333,8 +339,10 @@ func Heartbeat() {
 	}
 }
 
-// This function is designed to emulate a client reaching out to the
-// server. Note that many of the realistic details are removed, for simplicity
+// This function is designed to emulate a client reaching out to the server. Note that many of the realistic details are removed, for simplicity
+
+// where is this function used? main? leaderElection?
+
 func ClientAddToLog() {
 	// In a realistic scenario, the client will find the leader node and communicate with it
 	// In this implementation, we are pretending that the client reached out to the server somehow
@@ -342,19 +350,29 @@ func ClientAddToLog() {
 	// isLeader here is a boolean to indicate whether the node is a leader or not
 	if isLeader {
 		// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
+
 		entry := LogEntry{lastApplied, currentTerm}
 		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 		// Add rest of logic here
 		// HINT 1: using the AppendEntry RPC might happen here
 
+		// to use AppendEntry RPC:
+		// 1. create a new var of type AppendEntryArgument to use
+		// 2. within new var, update all variables within AppendEntryArgument type (ex: term, index, etc)
+		// 3. create a new AppendEntryReply
+		// tldr: copy the heartbeat
+
 	}
 	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
 	//You may use an endless loop here or recursively call the function
+
+	// use for loop
+
 	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 }
 
 func main() {
-	//var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	// The assumption here is that the command line arguments will contain:
 	// This server's ID (zero-based), location and name of the cluster configuration file
 	arguments := os.Args
