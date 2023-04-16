@@ -31,11 +31,11 @@ type VoteReply struct {
 // input for AppendEntries RPC
 // prevLogIndex, prevLogTerm, entries[],and leaderCommit all refer to logs and will not be used here
 type AppendEntryArgument struct {
-	Term     int // leader's term
-	LeaderID int // so follower can redirect clients
-	prevLogIndex int 
-	prevLogTerm int
-	entries[]LogEntry
+	Term         int // leader's term
+	LeaderID     int // so follower can redirect clients
+	prevLogIndex int
+	prevLogTerm  int
+	entries      []LogEntry
 	leaderCommit int
 }
 
@@ -64,18 +64,20 @@ var electionTimeout *time.Timer
 var isLeader bool
 var timerDuration time.Duration
 
-// provided by Christine
-var lastAppliedIndex int
-
 // from Raft paper
 var prevLogIndex int
 var prevLogTerm int
+var leaderCommit int
+
+// state variables
+var commitIndex int
+
+// provided by Christine
+var lastApplied int
 
 var logEntries []LogEntry
 
 var wg sync.WaitGroup
-
-//wg := sync.WaitGroup{}
 
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
@@ -160,28 +162,44 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	}
 
 	// if an existing entry conflicts with a new one (same index but diff. terms), delete existing entry and all that follow it
-	for entries := range logEntries {
-		// need to check if any existing entries have the same index but diff. terms compared to new one
-		if logEntries[entries].Index == arguments. && logEntries[entries].Term != arguments.Term {
-
-		if logEntries[entries].Index == -1 {
-			// update previous log index
-			prevLogIndex = logEntries[entries].Index - 1
+	for entryIndex := range logEntries {
+		// check if any existing entries have the same index but diff. terms compared to new one
+		if logEntries[entryIndex].Index == arguments.entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
+			// if there is a conflict:
+			// update prevLogIndex and set it to the previous index, then delete all entries following that index.
+			prevLogIndex = logEntries[entryIndex].Index - 1
 			fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
-
-			// delete existing entry at index and all that follow it
-			for i := logEntries[entries].Index; i < len(logEntries); i++ {
+			for i := logEntries[entryIndex].Index; i < len(logEntries); i++ {
 				logEntries[i].Term = -1
 				logEntries[i].Index = -1
-
+			}
+		} else {
+			// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
+			// start from receiver's prevLogIndex, don't look back (assume all correct)
+			// sender's log, start at receiver's prevLogIndex
+			for i := arguments.prevLogIndex; i < len(arguments.entries); i++ {
+				if arguments.Term != logEntries[i].Term && arguments.entries[i].Index != logEntries[i].Index {
+					newEntry := arguments.entries[i]
+					logEntries[i] = newEntry
+					prevLogIndex++
+				}
 			}
 		}
 	}
-}
 
 	if !stopped {
 		fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
 	}
+
+	// if leader commit is greater than commit index, set commit index equal to minimum between leadercommit and prevlogindex
+	if leaderCommit > commitIndex {
+		if leaderCommit < prevLogIndex {
+			commitIndex = leaderCommit
+		} else {
+			commitIndex = prevLogIndex
+		}
+	}
+
 	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
 }
