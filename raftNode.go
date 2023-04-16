@@ -18,8 +18,10 @@ type RaftNode int
 // input for RequestVote RPC
 // not using lastLogIndex; lastLogTerm
 type VoteArguments struct {
-	Term        int // candidate's term
-	CandidateID int // candidate requesting vote
+	Term         int // candidate's term
+	CandidateID  int // candidate requesting vote
+	lastLogIndex int
+	lastLogTerm  int
 }
 
 // output for RequestVote RPC
@@ -100,7 +102,32 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			reply.Term = currentTerm
 			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because we are in higher term\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
 		} else { //otherwise if the candidate is higher term (or same term?) as us, we can vote for it
-			fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
+			//if candidate’s log is at least as up-to-date as receiver’s log, grant vote
+
+			if arguments.lastLogIndex >= prevLogIndex {
+				fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
+				reply.ResultVote = true
+				currentTerm = arguments.Term //update term
+				if isLeader {
+					isLeader = false //no longer leader (if previously leader)
+					fmt.Printf("I was leader, but now I am not\n")
+				}
+				votedFor = arguments.CandidateID
+				fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+			} else {
+				reply.ResultVote = false
+				//tell the candidate our term?
+				reply.Term = currentTerm
+				fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because our log is more up to date\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
+			}
+
+		} /*else {
+			fmt.Println("--->FIGURE OUT WHAT TO DO IN THIS SCENARIO")
+		}*/
+	} else if votedFor == arguments.CandidateID {
+		//if candidate’s log is at least as up-to-date as receiver’s log, grant vote
+		if arguments.lastLogIndex >= prevLogIndex {
+			fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
 			reply.ResultVote = true
 			currentTerm = arguments.Term //update term
 			if isLeader {
@@ -109,19 +136,13 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			}
 			votedFor = arguments.CandidateID
 			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
-		} /*else {
-			fmt.Println("--->FIGURE OUT WHAT TO DO IN THIS SCENARIO")
-		}*/
-	} else if votedFor == arguments.CandidateID {
-		fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
-		reply.ResultVote = true
-		currentTerm = arguments.Term //update term
-		if isLeader {
-			isLeader = false //no longer leader (if previously leader)
-			fmt.Printf("I was leader, but now I am not\n")
+		} else {
+			reply.ResultVote = false
+			//tell the candidate our term?
+			reply.Term = currentTerm
+			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because our log is more up to date\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
 		}
-		votedFor = arguments.CandidateID
-		fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+
 	} else {
 		fmt.Printf("I already voted for %d in this term #%d\n", votedFor, currentTerm)
 		reply.ResultVote = false
@@ -133,7 +154,6 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 
 // The AppendEntry RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
-// Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
 	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
 	stopped := restartTimer() //returns true if timer was going
@@ -314,30 +334,23 @@ func Heartbeat() {
 }
 
 // This function is designed to emulate a client reaching out to the
-// server. Note that many of the realistic details are removed, for
-// simplicity
+// server. Note that many of the realistic details are removed, for simplicity
 func ClientAddToLog() {
-	// In a realistic scenario, the client will find the leader node and
-	//communicate with it
-	// In this implementation, we are pretending that the client reached
-	//out to the server somehow
-	// But any new log entries will not be created unless the server /
-	//node is a leader
-	// isLeader here is a boolean to indicate whether the node is a leader
-	//or not
+	// In a realistic scenario, the client will find the leader node and communicate with it
+	// In this implementation, we are pretending that the client reached out to the server somehow
+	// But any new log entries will not be created unless the server node is a leader
+	// isLeader here is a boolean to indicate whether the node is a leader or not
 	if isLeader {
-		// lastAppliedIndex here is an int variable that is needed by a node
-		//to store the value of the last index it used in the log
-		entry := LogEntry{lastAppliedIndex, currentTerm}
+		// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
+		entry := LogEntry{lastApplied, currentTerm}
 		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 		// Add rest of logic here
 		// HINT 1: using the AppendEntry RPC might happen here
+
 	}
-	// HINT 2: force the thread to sleep for a good amount of time (less
-	//than that of the leader election timer) and then repeat the actions above.
+	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
 	//You may use an endless loop here or recursively call the function
-	// HINT 3: you don’t need to add to the logic of creating new log
-	//entries, just handle the replication
+	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 }
 
 func main() {
