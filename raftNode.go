@@ -81,6 +81,9 @@ var logEntries []LogEntry
 
 var wg sync.WaitGroup
 
+// adding a mutex so we can lock certain variables like currentTerm, votedFor, etc
+var m sync.RWMutex
+
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and majority votes
@@ -90,7 +93,9 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
 	//clear the votedFor if we are in a new election
 	if arguments.Term > currentTerm {
+		m.Lock()
 		votedFor = -1
+		m.Unlock()
 	}
 
 	//if this machine hasn't voted yet in this term, voted for will be -1
@@ -107,12 +112,16 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			if arguments.lastLogIndex >= prevLogIndex {
 				fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
 				reply.ResultVote = true
+				m.Lock()
 				currentTerm = arguments.Term //update term
+				m.Unlock()
 				if isLeader {
 					isLeader = false //no longer leader (if previously leader)
 					fmt.Printf("I was leader, but now I am not\n")
 				}
+				m.Lock()
 				votedFor = arguments.CandidateID
+				m.Unlock()
 				fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
 			} else {
 				reply.ResultVote = false
@@ -129,12 +138,16 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		if arguments.lastLogIndex >= prevLogIndex {
 			fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
 			reply.ResultVote = true
+			m.Lock()
 			currentTerm = arguments.Term //update term
+			m.Unlock()
 			if isLeader {
 				isLeader = false //no longer leader (if previously leader)
 				fmt.Printf("I was leader, but now I am not\n")
 			}
+			m.Lock()
 			votedFor = arguments.CandidateID
+			m.Unlock()
 			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
 		} else {
 			reply.ResultVote = false
@@ -170,7 +183,10 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 			reply.Success = false //don't want to append entry in this scenario because the leader is out of sync
 		} else {
 			fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
+			//add mutex
+			m.Lock()
 			currentTerm = arguments.Term
+			m.Unlock()
 		}
 	}
 
@@ -269,7 +285,9 @@ func restartTimer() bool {
 func LeaderElection() {
 	currentTerm += 1 // increment current term
 	//vote for self
+	m.Lock()
 	votedFor = selfID
+	m.Unlock()
 	voteCounts := 1
 	fmt.Printf(">> Recieved VOTE: self -> %d\n", selfID)
 	//reset election timer (didn't we just do this?)
@@ -295,7 +313,9 @@ func LeaderElection() {
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
 			if voteResult.Term > currentTerm {
+				m.Lock()
 				currentTerm = voteResult.Term //catch up to current term
+				m.Unlock()
 				//And also stop the election and step down to follower - this means that the other node is more up to date.
 				if isLeader {
 					fmt.Println("-->I was leader, but am stepping down to follower during election phase")
