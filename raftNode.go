@@ -202,6 +202,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 					newEntry := arguments.entries[i]
 					logEntries[i] = newEntry
 					prevLogIndex++
+
 				}
 			}
 		}
@@ -258,6 +259,7 @@ func restartTimer() bool {
 		fmt.Println("Heartbeat recieved; timer was stopped")
 	}
 	//restart timer
+
 	StartTimer(timerDuration)
 	return timer_was_going
 }
@@ -271,6 +273,7 @@ func LeaderElection() {
 	voteCounts := 1
 	fmt.Printf(">> Recieved VOTE: self -> %d\n", selfID)
 	//reset election timer (didn't we just do this?)
+	restartTimer()
 	//send RequestVote RPC to all other servers
 	voteArgs := new(VoteArguments)
 	voteArgs.Term = currentTerm
@@ -285,20 +288,31 @@ func LeaderElection() {
 
 		serverCall := node.rpcConnection.Go("RaftNode.RequestVote", voteArgs, voteResult, nil)
 		<-serverCall.Done
-		if voteResult.ResultVote {
+		//What if the voteResult is a stale reply from a previous term? Make sure to check if the term in voteResult matches the term you used in your arguments
+		if voteResult.ResultVote && voteResult.Term == currentTerm {
 			voteCounts += 1 //recieved a vote
 			fmt.Printf(">> Recieved VOTE: %d -> %d\n", node.serverID, selfID)
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
 			if voteResult.Term > currentTerm {
 				currentTerm = voteResult.Term //catch up to current term
+				//And also stop the election and step down to follower - this means that the other node is more up to date.
+				if isLeader {
+					fmt.Println("-->I was leader, but am stepping down to follower during election phase")
+					isLeader = false
+				}
+				//to stop the election; break?
+				break
+
 			}
 		}
 	}
 
 	//if recieved majority of votes, become leader
-	voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
-	if voteProportion >= 0.5 {
+	//voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
+	//voteProportion := voteCounts/2*len(serverNodes)
+	//if voteProportion >= 0.5 {
+	if voteCounts > 2*len(serverNodes) {
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		electionTimeout.Stop()
 		isLeader = true
