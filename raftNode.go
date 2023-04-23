@@ -206,18 +206,24 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 		reply.Term = currentTerm
 	} else { //check other conditions for append
 		fmt.Printf("logEntries[prevLogIndex].Term should equal prevLogTerm\n")
+		fmt.Print("arguments.entries is currently: ")
+		fmt.Println(arguments.entries)
 
 		for entryIndex := range logEntries {
 			// check if any existing entries have the same index but diff. terms compared to new one (in which case it will refuse to append)
-			fmt.Printf("Entry at index %d is term %d in my log and index %d is term %d in argument log", logEntries[entryIndex].Index, arguments.entries[entryIndex].Index, logEntries[entryIndex].Term, arguments.Term)
+			fmt.Printf("Index of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Index, entryIndex)
+			fmt.Printf("Index of arguments.entries: %d, and current entryIndex: %d\n", arguments.entries[entryIndex].Term, entryIndex)
+			fmt.Printf("Term of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Term, entryIndex)
+			fmt.Printf("Term of arguments.entries: %d, and current entryIndex: %d\n", arguments.entries[entryIndex].Term, entryIndex)
+			//fmt.Printf("Entry at index %d is term %d in my log and index %d is term %d in argument log", logEntries[entryIndex].Index, arguments.entries[entryIndex].Index, logEntries[entryIndex].Term, arguments.Term)
 			if logEntries[entryIndex].Index == arguments.entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
 				// if there is a conflict:
 				// update prevLogIndex and set it to the previous index, then delete all entries following that index.
 				prevLogIndex = logEntries[entryIndex].Index - 1
 				fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
 				for i := logEntries[entryIndex].Index; i < len(logEntries); i++ {
-					logEntries[i].Term = -1
-					logEntries[i].Index = -1
+					logEntries[i].Term = 0
+					logEntries[i].Index = 0
 				}
 			} else { //else we should be good to commit
 				// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
@@ -410,6 +416,8 @@ func ClientAddToLog() {
 			arg.leaderCommit = leaderCommit
 			arg.entries = logEntries //do we need to append the newly made log entry here??
 			arg.entries = append(arg.entries, entry)
+			fmt.Print("arg.entries is: ")
+			fmt.Println(arg.entries)
 
 			//RPC should be sent to all follower nodes, so for loop to traverse
 			reply := new(AppendEntryReply)
