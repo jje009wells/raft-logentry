@@ -169,8 +169,11 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 1: Use the description in Figure 2 of the paper
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
 	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
-	stopped := restartTimer() //returns true if timer was going
+	//stopped := restartTimer() //returns true if timer was going
 	//if recieves a heartbeat, we must be a follower
+	//this code never gets past the restart of the timer!
+	fmt.Println("-------------I GET PAST TIMER")
+
 	if isLeader {
 		isLeader = false //no longer leader (if previously leader)
 		fmt.Printf("I was leader, but now I am not (found out when receiving a heartbeat)")
@@ -191,42 +194,53 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	}
 
 	//NEW
+	fmt.Println("-- START OF LOG ENTRY CODE IN RPC")
+
 	//logEntry: index , term
-	if logEntries[prevLogIndex].Term != prevLogTerm {
-		fmt.Printf("-- entry not appended because the terms are out of sync!!")
+	//Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	//if this is true, don't want to append?
+	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.prevLogIndex].Term, arguments.prevLogIndex, arguments.prevLogTerm)
+	if logEntries[arguments.prevLogIndex].Term != arguments.prevLogTerm {
+		fmt.Printf("-- entry not appended because the terms are out of sync!!\n")
 		reply.Success = false
 		reply.Term = currentTerm
+	} else { //check other conditions for append
+		fmt.Printf("logEntries[prevLogIndex].Term should equal prevLogTerm\n")
+
+		for entryIndex := range logEntries {
+			// check if any existing entries have the same index but diff. terms compared to new one (in which case it will refuse to append)
+			fmt.Printf("Entry at index %d is term %d in my log and index %d is term %d in argument log", logEntries[entryIndex].Index, arguments.entries[entryIndex].Index, logEntries[entryIndex].Term, arguments.Term)
+			if logEntries[entryIndex].Index == arguments.entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
+				// if there is a conflict:
+				// update prevLogIndex and set it to the previous index, then delete all entries following that index.
+				prevLogIndex = logEntries[entryIndex].Index - 1
+				fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
+				for i := logEntries[entryIndex].Index; i < len(logEntries); i++ {
+					logEntries[i].Term = -1
+					logEntries[i].Index = -1
+				}
+			} else { //else we should be good to commit
+				// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
+				// start from receiver's prevLogIndex, don't look back (assume all correct)
+				// sender's log, start at receiver's prevLogIndex
+				for i := arguments.prevLogIndex; i < len(arguments.entries); i++ {
+					if arguments.Term != logEntries[i].Term && arguments.entries[i].Index != logEntries[i].Index {
+						newEntry := arguments.entries[i]
+						logEntries[i] = newEntry
+						prevLogIndex++
+
+					}
+				}
+
+				reply.Success = true
+				reply.Term = currentTerm
+			}
+		}
 	}
 
 	// if an existing entry conflicts with a new one (same index but diff. terms), delete existing entry and all that follow it
-	for entryIndex := range logEntries {
-		// check if any existing entries have the same index but diff. terms compared to new one
-		if logEntries[entryIndex].Index == arguments.entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
-			// if there is a conflict:
-			// update prevLogIndex and set it to the previous index, then delete all entries following that index.
-			prevLogIndex = logEntries[entryIndex].Index - 1
-			fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
-			for i := logEntries[entryIndex].Index; i < len(logEntries); i++ {
-				logEntries[i].Term = -1
-				logEntries[i].Index = -1
-			}
-		} else { //else we should be good to commit
-			// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
-			// start from receiver's prevLogIndex, don't look back (assume all correct)
-			// sender's log, start at receiver's prevLogIndex
-			for i := arguments.prevLogIndex; i < len(arguments.entries); i++ {
-				if arguments.Term != logEntries[i].Term && arguments.entries[i].Index != logEntries[i].Index {
-					newEntry := arguments.entries[i]
-					logEntries[i] = newEntry
-					prevLogIndex++
 
-				}
-			}
-
-			reply.Success = true
-			reply.Term = currentTerm
-		}
-	}
+	stopped := restartTimer()
 
 	if !stopped {
 		fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
@@ -394,7 +408,7 @@ func ClientAddToLog() {
 			arg.prevLogTerm = prevLogTerm
 			arg.prevLogIndex = prevLogIndex
 			arg.leaderCommit = leaderCommit
-			arg.entries = logEntries
+			arg.entries = logEntries //do we need to append the newly made log entry here??
 
 			//RPC should be sent to all follower nodes, so for loop to traverse
 			reply := new(AppendEntryReply)
@@ -493,6 +507,9 @@ func main() {
 	//initializing commitIndex and lastApplied
 	commitIndex = 0
 	lastApplied = 0
+	//init the log
+	firstEntry := LogEntry{0, 0}
+	logEntries = append(logEntries, firstEntry)
 
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
