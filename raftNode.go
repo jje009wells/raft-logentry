@@ -35,10 +35,10 @@ type VoteReply struct {
 type AppendEntryArgument struct {
 	Term         int // leader's term
 	LeaderID     int // so follower can redirect clients
-	prevLogIndex int
-	prevLogTerm  int
-	entries      []LogEntry
-	leaderCommit int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
 }
 
 // output for AppendEntries RPC
@@ -199,24 +199,24 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	//logEntry: index , term
 	//Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
 	//if this is true, don't want to append?
-	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.prevLogIndex].Term, arguments.prevLogIndex, arguments.prevLogTerm)
-	if logEntries[arguments.prevLogIndex].Term != arguments.prevLogTerm {
+	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.PrevLogIndex].Term, arguments.PrevLogIndex, arguments.PrevLogTerm)
+	if logEntries[arguments.PrevLogIndex].Term != arguments.PrevLogTerm {
 		fmt.Printf("-- entry not appended because the terms are out of sync!!\n")
 		reply.Success = false
 		reply.Term = currentTerm
 	} else { //check other conditions for append
 		fmt.Printf("logEntries[prevLogIndex].Term should equal prevLogTerm\n")
 		fmt.Print("arguments.entries is currently: ")
-		fmt.Println(arguments.entries)
+		fmt.Println(arguments.Entries)
 
 		for entryIndex := range logEntries {
 			// check if any existing entries have the same index but diff. terms compared to new one (in which case it will refuse to append)
 			fmt.Printf("Index of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Index, entryIndex)
-			fmt.Printf("Index of arguments.entries: %d, and current entryIndex: %d\n", arguments.entries[entryIndex].Term, entryIndex)
+			fmt.Printf("Index of arguments.entries: %d, and current entryIndex: %d\n", arguments.Entries[entryIndex].Term, entryIndex)
 			fmt.Printf("Term of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Term, entryIndex)
-			fmt.Printf("Term of arguments.entries: %d, and current entryIndex: %d\n", arguments.entries[entryIndex].Term, entryIndex)
+			fmt.Printf("Term of arguments.entries: %d, and current entryIndex: %d\n", arguments.Entries[entryIndex].Term, entryIndex)
 			//fmt.Printf("Entry at index %d is term %d in my log and index %d is term %d in argument log", logEntries[entryIndex].Index, arguments.entries[entryIndex].Index, logEntries[entryIndex].Term, arguments.Term)
-			if logEntries[entryIndex].Index == arguments.entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
+			if logEntries[entryIndex].Index == arguments.Entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
 				// if there is a conflict:
 				// update prevLogIndex and set it to the previous index, then delete all entries following that index.
 				prevLogIndex = logEntries[entryIndex].Index - 1
@@ -229,9 +229,9 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 				// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
 				// start from receiver's prevLogIndex, don't look back (assume all correct)
 				// sender's log, start at receiver's prevLogIndex
-				for i := arguments.prevLogIndex; i < len(arguments.entries); i++ {
-					if arguments.Term != logEntries[i].Term && arguments.entries[i].Index != logEntries[i].Index {
-						newEntry := arguments.entries[i]
+				for i := arguments.PrevLogIndex; i < len(arguments.Entries); i++ {
+					if arguments.Term != logEntries[i].Term && arguments.Entries[i].Index != logEntries[i].Index {
+						newEntry := arguments.Entries[i]
 						logEntries[i] = newEntry
 						prevLogIndex++
 
@@ -411,13 +411,13 @@ func ClientAddToLog() {
 			arg := new(AppendEntryArgument)
 			arg.Term = currentTerm
 			arg.LeaderID = selfID
-			arg.prevLogTerm = prevLogTerm
-			arg.prevLogIndex = prevLogIndex
-			arg.leaderCommit = leaderCommit
-			arg.entries = logEntries //do we need to append the newly made log entry here??
-			arg.entries = append(arg.entries, entry)
+			arg.PrevLogTerm = prevLogTerm
+			arg.PrevLogIndex = prevLogIndex
+			arg.LeaderCommit = leaderCommit
+			arg.Entries = logEntries //do we need to append the newly made log entry here??
+			arg.Entries = append(arg.Entries, entry)
 			fmt.Print("arg.entries is: ")
-			fmt.Println(arg.entries)
+			fmt.Println(arg.Entries)
 
 			//RPC should be sent to all follower nodes, so for loop to traverse
 			reply := new(AppendEntryReply)
