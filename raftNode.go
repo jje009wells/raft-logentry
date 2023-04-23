@@ -409,6 +409,7 @@ func ClientAddToLog() {
 			arg.prevLogIndex = prevLogIndex
 			arg.leaderCommit = leaderCommit
 			arg.entries = logEntries //do we need to append the newly made log entry here??
+			arg.entries = append(arg.entries, entry)
 
 			//RPC should be sent to all follower nodes, so for loop to traverse
 			reply := new(AppendEntryReply)
