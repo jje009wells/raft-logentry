@@ -67,19 +67,22 @@ var isLeader bool
 var timerDuration time.Duration
 
 // from Raft paper
-var prevLogIndex int
-var prevLogTerm int
-var leaderCommit int
+var prevLogIndex int //index of log entry immediately preceding new ones
+var prevLogTerm int  //term of prevLogIndex entry
+var leaderCommit int //leader’s commitIndex
 
 // state variables
-var commitIndex int
+var commitIndex int //index of highest log entry known to be committed (initialized to 0, increases monotonically)
 
 // provided by Christine
-var lastApplied int
+var lastApplied int //index of highest log entry applied to state machine (initialized to 0, increases monotonically)
 
-var logEntries []LogEntry
+var logEntries []LogEntry //log entries; each entry contains term when entry was received by leader (first index is 1), and also the index of said term?
 
 var wg sync.WaitGroup
+
+// adding a mutex so we can lock certain variables like currentTerm, votedFor, etc
+var m sync.RWMutex
 
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
@@ -90,7 +93,9 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
 	//clear the votedFor if we are in a new election
 	if arguments.Term > currentTerm {
+		m.Lock()
 		votedFor = -1
+		m.Unlock()
 	}
 
 	//if this machine hasn't voted yet in this term, voted for will be -1
@@ -107,12 +112,16 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			if arguments.lastLogIndex >= prevLogIndex {
 				fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
 				reply.ResultVote = true
+				m.Lock()
 				currentTerm = arguments.Term //update term
+				m.Unlock()
 				if isLeader {
 					isLeader = false //no longer leader (if previously leader)
 					fmt.Printf("I was leader, but now I am not\n")
 				}
+				m.Lock()
 				votedFor = arguments.CandidateID
+				m.Unlock()
 				fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
 			} else {
 				reply.ResultVote = false
@@ -129,12 +138,16 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		if arguments.lastLogIndex >= prevLogIndex {
 			fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
 			reply.ResultVote = true
+			m.Lock()
 			currentTerm = arguments.Term //update term
+			m.Unlock()
 			if isLeader {
 				isLeader = false //no longer leader (if previously leader)
 				fmt.Printf("I was leader, but now I am not\n")
 			}
+			m.Lock()
 			votedFor = arguments.CandidateID
+			m.Unlock()
 			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
 		} else {
 			reply.ResultVote = false
@@ -170,7 +183,10 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 			reply.Success = false //don't want to append entry in this scenario because the leader is out of sync
 		} else {
 			fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
+			//add mutex
+			m.Lock()
 			currentTerm = arguments.Term
+			m.Unlock()
 		}
 	}
 
@@ -179,6 +195,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	if logEntries[prevLogIndex].Term != prevLogTerm {
 		fmt.Printf("-- entry not appended because the terms are out of sync!!")
 		reply.Success = false
+		reply.Term = currentTerm
 	}
 
 	// if an existing entry conflicts with a new one (same index but diff. terms), delete existing entry and all that follow it
@@ -193,7 +210,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 				logEntries[i].Term = -1
 				logEntries[i].Index = -1
 			}
-		} else {
+		} else { //else we should be good to commit
 			// iterate through sender's log. if any entries in sender's log do not match receiver's log (ie: different index/term combos), append to receiver's log.
 			// start from receiver's prevLogIndex, don't look back (assume all correct)
 			// sender's log, start at receiver's prevLogIndex
@@ -202,8 +219,12 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 					newEntry := arguments.entries[i]
 					logEntries[i] = newEntry
 					prevLogIndex++
+
 				}
 			}
+
+			reply.Success = true
+			reply.Term = currentTerm
 		}
 	}
 
@@ -258,6 +279,7 @@ func restartTimer() bool {
 		fmt.Println("Heartbeat recieved; timer was stopped")
 	}
 	//restart timer
+
 	StartTimer(timerDuration)
 	return timer_was_going
 }
@@ -270,10 +292,13 @@ func restartTimer() bool {
 func LeaderElection() {
 	currentTerm += 1 // increment current term
 	//vote for self
+	m.Lock()
 	votedFor = selfID
+	m.Unlock()
 	voteCounts := 1
 	fmt.Printf(">> Recieved VOTE: self -> %d\n", selfID)
 	//reset election timer (didn't we just do this?)
+	//restartTimer()
 	//send RequestVote RPC to all other servers
 	voteArgs := new(VoteArguments)
 	voteArgs.Term = currentTerm
@@ -288,20 +313,34 @@ func LeaderElection() {
 
 		serverCall := node.rpcConnection.Go("RaftNode.RequestVote", voteArgs, voteResult, nil)
 		<-serverCall.Done
-		if voteResult.ResultVote {
+		//What if the voteResult is a stale reply from a previous term? Make sure to check if the term in voteResult matches the term you used in your arguments
+		if voteResult.ResultVote { //&& voteResult.Term == currentTerm --> breaks if I add this
 			voteCounts += 1 //recieved a vote
 			fmt.Printf(">> Recieved VOTE: %d -> %d\n", node.serverID, selfID)
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
 			if voteResult.Term > currentTerm {
+				m.Lock()
 				currentTerm = voteResult.Term //catch up to current term
+				m.Unlock()
+				//And also stop the election and step down to follower - this means that the other node is more up to date.
+				if isLeader {
+					fmt.Println("-->I was leader, but am stepping down to follower during election phase")
+					isLeader = false
+				}
+				//to stop the election; break?
+				//break
+
 			}
 		}
 	}
 
 	//if recieved majority of votes, become leader
-	voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
-	if voteProportion >= 0.5 {
+	//voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
+	//voteProportion := voteCounts/2*len(serverNodes)
+	//if voteProportion >= 0.5 {
+	if voteCounts >= (len(serverNodes)/2 + 1) {
+		//fmt.Printf("Needs at least than %d votes", (len(serverNodes)/2 + 1))
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		electionTimeout.Stop()
 		isLeader = true
@@ -339,10 +378,8 @@ func Heartbeat() {
 	}
 }
 
-// This function is designed to emulate a client reaching out to the server. Note that many of the realistic details are removed, for simplicity
-
-// where is this function used? main? leaderElection?
-
+// This function is designed to emulate a client reaching out to the
+// server. Note that many of the realistic details are removed, for simplicity
 func ClientAddToLog() {
 	// In a realistic scenario, the client will find the leader node and communicate with it
 	// In this implementation, we are pretending that the client reached out to the server somehow
@@ -350,24 +387,14 @@ func ClientAddToLog() {
 	// isLeader here is a boolean to indicate whether the node is a leader or not
 	if isLeader {
 		// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
-
 		entry := LogEntry{lastApplied, currentTerm}
 		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 		// Add rest of logic here
 		// HINT 1: using the AppendEntry RPC might happen here
 
-		// to use AppendEntry RPC:
-		// 1. create a new var of type AppendEntryArgument to use
-		// 2. within new var, update all variables within AppendEntryArgument type (ex: term, index, etc)
-		// 3. create a new AppendEntryReply
-		// tldr: copy the heartbeat
-
 	}
 	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
 	//You may use an endless loop here or recursively call the function
-
-	// use for loop
-
 	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 }
 
@@ -451,6 +478,10 @@ func main() {
 		fmt.Println("Connected to " + element)
 	}
 
+	//initializing commitIndex and lastApplied
+	commitIndex = 0
+	lastApplied = 0
+
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
 	fmt.Printf("Creating Follower %d\n", selfID)
@@ -458,5 +489,6 @@ func main() {
 	isLeader = false
 	wg.Add(1)
 	go StartTimer(timerDuration) //go
+	//go ClientAddToLog()
 	wg.Wait()
 }
