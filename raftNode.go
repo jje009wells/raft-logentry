@@ -286,9 +286,6 @@ func restartTimer() bool {
 
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
-
-// update VoteArguments variables in here when creating new object
-
 func LeaderElection() {
 	currentTerm += 1 // increment current term
 	//vote for self
@@ -356,19 +353,17 @@ func LeaderElection() {
 
 // You may use this function to help with handling the periodic heartbeats
 // Hint: Use this only if the node is a leader
-
-// update other AppendEntryArgument variables
-
 func Heartbeat() {
 	arg := new(AppendEntryArgument)
 	arg.Term = currentTerm
 	arg.LeaderID = selfID
 	for isLeader {
 		fmt.Printf("heartbeat - leader %d is pinging all servers!\n", selfID)
-		reply := new(AppendEntryReply)
-		for _, node := range serverNodes {
-			node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
-		}
+		go ClientAddToLog()
+		// reply := new(AppendEntryReply)
+		// for _, node := range serverNodes {
+		// 	node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
+		// }
 		time.Sleep(1 * time.Second) //pause
 		//if you want to introduce failures, randomly break in that loop
 		// if rand.Intn(10) > 8 {
@@ -378,28 +373,45 @@ func Heartbeat() {
 	}
 }
 
-// This function is designed to emulate a client reaching out to the
-// server. Note that many of the realistic details are removed, for simplicity
+// This function is designed to emulate a client reaching out to the server. Note that many of the realistic details are removed, for simplicity
 func ClientAddToLog() {
 	// In a realistic scenario, the client will find the leader node and communicate with it
 	// In this implementation, we are pretending that the client reached out to the server somehow
 	// But any new log entries will not be created unless the server node is a leader
 	// isLeader here is a boolean to indicate whether the node is a leader or not
-	if isLeader {
-		// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
-		entry := LogEntry{lastApplied, currentTerm}
-		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
-		// Add rest of logic here
-		// HINT 1: using the AppendEntry RPC might happen here
+	for {
+		if isLeader {
+			// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
+			entry := LogEntry{lastApplied, currentTerm}
+			log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
+			// Add rest of logic here
+			// HINT 1: using the AppendEntry RPC might happen here
 
+			//need to initialize arguments for the RPC send
+			arg := new(AppendEntryArgument)
+			arg.Term = currentTerm
+			arg.LeaderID = selfID
+			arg.prevLogTerm = prevLogTerm
+			arg.prevLogIndex = prevLogIndex
+			arg.leaderCommit = leaderCommit
+			arg.entries = logEntries
+
+			//RPC should be sent to all follower nodes, so for loop to traverse
+			reply := new(AppendEntryReply)
+			for _, node := range serverNodes {
+				fmt.Println("-- adding log entries to clients!")
+				node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
+			}
+		}
+		time.Sleep((timerDuration - 10) * time.Millisecond)
 	}
 	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
-	//You may use an endless loop here or recursively call the function
+	// You may use an endless loop here or recursively call the function
 	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 }
 
 func main() {
-	// var wg sync.WaitGroup
+	//var wg sync.WaitGroup
 	// The assumption here is that the command line arguments will contain:
 	// This server's ID (zero-based), location and name of the cluster configuration file
 	arguments := os.Args
