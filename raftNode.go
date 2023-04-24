@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+/*
+Known issues with index out of bounds error during the AppendEntry RPC; struggling with how to compare logEntries at prevLogIndex of the leader when
+the leader is expected to have a more up to date log than logEntries (which belongs to the follower).
+There's other issues with when the prevLogIndex/Term are updated within the code, but had a hard time testing them with other out of bounds issues.
+Also, we know there is something wrong with the restart timer because when it is kept where it was in the original code, it never actually reached the
+rest of the code in AppendEntry RPC, so we moved it below the bulk of the AppendEntry RPC code so that we could actually try to test it, but we did not get
+around to fixing the timer.
+*/
+
 type RaftNode int
 
 // input for RequestVote RPC
@@ -196,12 +205,13 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	fmt.Println("-- START OF LOG ENTRY CODE IN RPC")
 
 	//logEntry: index , term
-	//Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-	//if this is true, don't want to append?
+
 	fmt.Print("logEntries is currently: ")
 	fmt.Println(logEntries)
 	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.PrevLogIndex].Term, arguments.PrevLogIndex, arguments.PrevLogTerm)
 
+	//Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	//maybe this check is supposed to go elsewhere?
 	if logEntries[arguments.PrevLogIndex].Term != arguments.PrevLogTerm {
 		fmt.Printf("-- entry not appended because the terms are out of sync!!\n")
 		reply.Success = false
@@ -226,12 +236,9 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 			// If the follower does not find an entry in its log with the same index and term, then it refuses the new entries.
 			if logEntries[entryIndex].Index == arguments.PrevLogIndex && logEntries[entryIndex].Term == arguments.PrevLogTerm {
 				//we have found a point at which the PrevLog of the leader matches the follower, so start from here
-				//
 
 				if logEntries[entryIndex].Index == arguments.Entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
 					// if there is a conflict:
-					// update prevLogIndex and set it to the previous index, then delete all entries following that index.
-					prevLogIndex = logEntries[entryIndex].Index - 1
 					fmt.Printf("-- updated prevLogIndex to %d!", prevLogIndex)
 					for i := logEntries[entryIndex].Index; i < len(logEntries); i++ {
 						logEntries[i].Term = 0
@@ -251,7 +258,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 					reply.Success = true
 					reply.Term = currentTerm
 				}
-			} else { //there was no point found where the logs match, so cant append
+			} else { //there was no point found where the logs match, so cant append (things are very wrong, this hopefully should not happen?)
 				fmt.Printf("-- entry not appended bc cant find a point where we agree\n")
 				reply.Success = false
 				reply.Term = currentTerm
@@ -438,7 +445,7 @@ func ClientAddToLog() {
 				arg.PrevLogTerm = entry.Term
 				arg.PrevLogIndex = entry.Index - 1
 				arg.LeaderCommit = leaderCommit
-				arg.Entries = logEntries //do we need to append the newly made log entry here??
+				arg.Entries = logEntries
 				fmt.Print("arg.Entries is currently: ")
 				fmt.Println(arg.Entries)
 
