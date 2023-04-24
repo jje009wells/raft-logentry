@@ -214,15 +214,18 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 			fmt.Println(logEntries[entryIndex])
 
 			// check if any existing entries have the same index but diff. terms compared to new one (in which case it will refuse to append)
-			/*fmt.Printf("Index of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Index, entryIndex)
+			fmt.Printf("Index of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Index, entryIndex)
 			fmt.Printf("Index of arguments.entries: %d, and current entryIndex: %d\n", arguments.Entries[entryIndex].Term, entryIndex)
 			fmt.Printf("Term of logEntries: %d, and current entryIndex: %d\n", logEntries[entryIndex].Term, entryIndex)
-			fmt.Printf("Term of arguments.entries: %d, and current entryIndex: %d\n", arguments.Entries[entryIndex].Term, entryIndex)*/
+			fmt.Printf("Term of arguments.entries: %d, and current entryIndex: %d\n", arguments.Entries[entryIndex].Term, entryIndex)
+
 			//fmt.Printf("Entry at index %d is term %d in my log and index %d is term %d in argument log", logEntries[entryIndex].Index, arguments.entries[entryIndex].Index, logEntries[entryIndex].Term, arguments.Term)
 			//When sending an AppendEntries RPC, the leader includes the index and term of the entry in its log that immediately precedes the new entries
 			// If the follower does not find an entry in its log with the same index and term, then it refuses the new entries.
 			if logEntries[entryIndex].Index == arguments.PrevLogIndex && logEntries[entryIndex].Term == arguments.PrevLogTerm {
 				//we have found a point at which the PrevLog of the leader matches the follower, so start from here
+				//
+
 				if logEntries[entryIndex].Index == arguments.Entries[entryIndex].Index && logEntries[entryIndex].Term != arguments.Term {
 					// if there is a conflict:
 					// update prevLogIndex and set it to the previous index, then delete all entries following that index.
@@ -410,6 +413,7 @@ func ClientAddToLog() {
 	// In this implementation, we are pretending that the client reached out to the server somehow
 	// But any new log entries will not be created unless the server node is a leader
 	// isLeader here is a boolean to indicate whether the node is a leader or not
+	appliedCount := 0
 	for {
 		if isLeader {
 			// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
@@ -426,8 +430,8 @@ func ClientAddToLog() {
 				arg := new(AppendEntryArgument)
 				arg.Term = currentTerm
 				arg.LeaderID = selfID
-				arg.PrevLogTerm = prevLogTerm
-				arg.PrevLogIndex = prevLogIndex
+				arg.PrevLogTerm = entry.Term
+				arg.PrevLogIndex = entry.Index
 				arg.LeaderCommit = leaderCommit
 				arg.Entries = logEntries //do we need to append the newly made log entry here??
 				fmt.Print("arg.Entries is currently: ")
@@ -440,14 +444,26 @@ func ClientAddToLog() {
 					node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
 				}
 				lastApplied++
-			}
+				appendReply := new(AppendEntryReply)
 
+				if appendReply.Success {
+					appliedCount++
+				} else {
+					fmt.Println("The append to the server failed")
+				}
+
+				// If majority of servers added to their log, then we can commit to our
+				if appliedCount > (len(serverNodes)/2 + 1) {
+					commitIndex++
+				}
+
+			}
+			time.Sleep((timerDuration - 10) * time.Millisecond)
 		}
-		time.Sleep((timerDuration - 10) * time.Millisecond)
+		// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
+		// You may use an endless loop here or recursively call the function
+		// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 	}
-	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above.
-	// You may use an endless loop here or recursively call the function
-	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
 }
 
 func main() {
