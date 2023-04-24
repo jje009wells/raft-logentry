@@ -172,7 +172,6 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	//stopped := restartTimer() //returns true if timer was going
 	//if recieves a heartbeat, we must be a follower
 	//this code never gets past the restart of the timer!
-	fmt.Println("-------------I GET PAST TIMER")
 
 	if isLeader {
 		isLeader = false //no longer leader (if previously leader)
@@ -199,6 +198,8 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	//logEntry: index , term
 	//Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
 	//if this is true, don't want to append?
+	fmt.Print("logEntries is currently: ")
+	fmt.Println(logEntries)
 	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.PrevLogIndex].Term, arguments.PrevLogIndex, arguments.PrevLogTerm)
 	if logEntries[arguments.PrevLogIndex].Term != arguments.PrevLogTerm {
 		fmt.Printf("-- entry not appended because the terms are out of sync!!\n")
@@ -425,13 +426,15 @@ func ClientAddToLog() {
 				// Add rest of logic here
 				logEntries = append(logEntries, entry)
 				// HINT 1: using the AppendEntry RPC might happen here
+				prevLogTerm = entry.Term
+				prevLogIndex = entry.Index - 1
 
 				//need to initialize arguments for the RPC send
 				arg := new(AppendEntryArgument)
 				arg.Term = currentTerm
 				arg.LeaderID = selfID
 				arg.PrevLogTerm = entry.Term
-				arg.PrevLogIndex = entry.Index
+				arg.PrevLogIndex = entry.Index - 1
 				arg.LeaderCommit = leaderCommit
 				arg.Entries = logEntries //do we need to append the newly made log entry here??
 				fmt.Print("arg.Entries is currently: ")
