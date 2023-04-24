@@ -201,6 +201,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	fmt.Print("logEntries is currently: ")
 	fmt.Println(logEntries)
 	fmt.Printf("logEntries[arguments.prevLogIndex].Term: %d at arguments.prevLogIndex: %d and arguments.prevLogTerm is %d\n", logEntries[arguments.PrevLogIndex].Term, arguments.PrevLogIndex, arguments.PrevLogTerm)
+
 	if logEntries[arguments.PrevLogIndex].Term != arguments.PrevLogTerm {
 		fmt.Printf("-- entry not appended because the terms are out of sync!!\n")
 		reply.Success = false
@@ -424,6 +425,7 @@ func ClientAddToLog() {
 				entry := LogEntry{lastApplied, currentTerm}
 				log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 				// Add rest of logic here
+				lastApplied++
 				logEntries = append(logEntries, entry)
 				// HINT 1: using the AppendEntry RPC might happen here
 				prevLogTerm = entry.Term
@@ -446,7 +448,7 @@ func ClientAddToLog() {
 					fmt.Println("-- adding log entries to clients!")
 					node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
 				}
-				lastApplied++
+
 				appendReply := new(AppendEntryReply)
 
 				if appendReply.Success {
@@ -555,6 +557,7 @@ func main() {
 	//init the log
 	firstEntry := LogEntry{0, 0}
 	logEntries = append(logEntries, firstEntry)
+	lastApplied++
 
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
