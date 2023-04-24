@@ -419,6 +419,7 @@ func ClientAddToLog() {
 				entry := LogEntry{lastApplied, currentTerm}
 				log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 				// Add rest of logic here
+				logEntries = append(logEntries, entry)
 				// HINT 1: using the AppendEntry RPC might happen here
 
 				//need to initialize arguments for the RPC send
@@ -429,9 +430,6 @@ func ClientAddToLog() {
 				arg.PrevLogIndex = prevLogIndex
 				arg.LeaderCommit = leaderCommit
 				arg.Entries = logEntries //do we need to append the newly made log entry here??
-				var entrySlice []LogEntry
-				entrySlice = append(entrySlice, entry)
-				arg.Entries = append(arg.Entries, entrySlice)
 				fmt.Print("arg.Entries is currently: ")
 				fmt.Println(arg.Entries)
 
